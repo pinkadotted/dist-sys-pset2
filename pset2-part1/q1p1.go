@@ -2,24 +2,26 @@ package pset2part1
 
 import (
 	"fmt"
-	"math/rand"
 	"time"
 )
 
 type Node struct {
 	id              int
 	messageChan     chan Message
-	vectorClock     [11]int
+	vectorClock     [10]int
 	priorityQueue   []Message
 	isInCS          bool
 	wantToEnterCS   bool
 	receivedReplies []int // slice of ids of received replies
+	time_requested  time.Time
+	time_exited     time.Time
+	hasBeenInCS     bool
 }
 
 type Message struct {
 	senderID          int
 	messageType       string // can be "request", "reply", "release"
-	senderVectorClock [11]int
+	senderVectorClock [10]int
 }
 
 func initNode(id int) Node {
@@ -79,7 +81,7 @@ func (n *Node) listenForMessages() {
 			n.insertMessageIntoPQueue(msg)
 			go n.replyToRequest(msg)
 		} else if msg.messageType == "release" {
-			if len(n.priorityQueue) == 1 {
+			if len(n.priorityQueue) <= 1 {
 				n.priorityQueue = make([]Message, 0)
 			} else {
 				n.priorityQueue = n.priorityQueue[1:]
@@ -147,7 +149,7 @@ func (n *Node) replyToRequest(msg Message) {
 func (n *Node) enterCriticalSection() {
 	n.isInCS = true
 	fmt.Println("Node", n.id, "ENTERING critical section...")
-	time.Sleep(time.Duration(rand.Intn(10)) * time.Second)
+	time.Sleep(time.Duration(1) * time.Second)
 	n.vectorClock[n.id]++
 	n.receivedReplies = make([]int, 0)
 	if len(n.priorityQueue) <= 1 {
@@ -167,21 +169,21 @@ func (n *Node) enterCriticalSection() {
 			}
 		}
 	}
+	n.time_exited = time.Now()
 }
 
 // function to automatically, periodically send a request to enter critical section to all the other nodes via the message channel
 func (n *Node) requestToEnterCriticalSection() {
-	for {
-		time.Sleep(time.Duration(rand.Intn(20)) * time.Second)
+	// for {
+	// time.Sleep(time.Duration(rand.Intn(20)) * time.Second)
+	for !n.hasBeenInCS {
+		n.time_requested = time.Now()
 		if !n.wantToEnterCS {
 			n.receivedReplies = make([]int, 0)
 			// fmt.Println("Node", n.id, "requesting to enter critical section...")
 			n.insertMessageIntoPQueue(Message{senderID: n.id,
 				messageType:       "request",
 				senderVectorClock: n.vectorClock})
-			// n.priorityQueue = append(n.priorityQueue, Message{senderID: n.id,
-			// 	messageType:       "request",
-			// 	senderVectorClock: n.vectorClock})
 			n.wantToEnterCS = true
 			n.vectorClock[n.id]++
 			VCsnapshot := n.vectorClock
@@ -195,15 +197,19 @@ func (n *Node) requestToEnterCriticalSection() {
 				}
 			}
 		}
+		n.hasBeenInCS = true
 	}
 }
 
 var nodes []Node
-var numberOfNodes = 11
+var numberOfNodes = 10
+
+// make a map of node ids to their times in CS
+var timesInCS = make(map[int]time.Duration)
 
 // function to initialize all the nodes, and start the listening for messages and request to enter critical section goroutines, and randomly send requests to enter critical section
-func Q1p1() {
-	fmt.Println("Q1p1 starting...")
+func Q1P1() {
+	fmt.Println("Q1P1 starting...")
 	for i := 0; i < numberOfNodes; i++ {
 		nodes = append(nodes, initNode(i))
 	}
@@ -211,8 +217,18 @@ func Q1p1() {
 		go nodes[i].listenForMessages()
 		go nodes[i].requestToEnterCriticalSection()
 	}
-	// wait for goroutines to finish
-	for {
-		time.Sleep(1 * time.Second)
+	// i want to check if all the timesInCS have been filled
+	for len(timesInCS) < numberOfNodes {
+		// i want to check if a node has exited the critical section
+		for i := 0; i < numberOfNodes; i++ {
+			// fmt.Printf("testing\n")
+			if (nodes[i].time_exited.Sub(nodes[i].time_requested)) > time.Duration(0) && timesInCS[i] == 0 {
+				timesInCS[i] = nodes[i].time_exited.Sub(nodes[i].time_requested)
+				// i want to print all times
+				fmt.Printf("Node %d's time in CS: %v\n", i, nodes[i].time_exited.Sub(nodes[i].time_requested))
+				fmt.Printf("Length of timesInCS: %d\n", len(timesInCS))
+			}
+		}
+		// print length of timesInCS
 	}
 }

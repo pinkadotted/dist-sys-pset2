@@ -9,7 +9,7 @@ import (
 type Node struct {
 	id            int
 	messageChan   chan Message
-	vectorClock   [4]int
+	vectorClock   [10]int
 	localQueue    []Message
 	isInCS        bool
 	wantToEnterCS bool
@@ -22,7 +22,7 @@ type Node struct {
 type Message struct {
 	senderID          int
 	messageType       string // can be "REQUEST-VOTE", "GIVE-VOTE", "RESCIND-VOTE", "RELEASE-VOTE"
-	senderVectorClock [4]int
+	senderVectorClock []int
 }
 
 // func to initialize a node
@@ -89,46 +89,57 @@ func (n *Node) insertMessageIntoQueue(m Message) {
 // function where a node wants to enter CS and sends a request
 
 func (n *Node) sendRequest() {
-	time.Sleep(time.Duration(rand.Intn(10)) * time.Second)
-	n.wantToEnterCS = true
-	n.vectorClock[n.id]++
-	vcSnapshot := n.vectorClock
-	requestMessage := Message{
-		senderID:          n.id,
-		senderVectorClock: vcSnapshot,
-		messageType:       "REQUEST-VOTE",
-	}
-	for _, node := range nodes {
-		if node.id != n.id {
-			node.messageChan <- requestMessage
+	for {
+		time.Sleep(time.Duration(rand.Intn(10)) * time.Second)
+		if !n.wantToEnterCS && !n.isInCS {
+			n.wantToEnterCS = true
+			n.vectorClock[n.id]++
+			vcSnapshot := append([]int(nil), n.vectorClock[:]...)
+			requestMessage := Message{
+				senderID:          n.id,
+				senderVectorClock: vcSnapshot,
+				messageType:       "REQUEST-VOTE",
+			}
+			if !n.hasVoted {
+				n.votedFor = requestMessage
+				copy(n.votedFor.senderVectorClock, requestMessage.senderVectorClock)
+				n.hasVoted = true
+				n.receivedVoteIDs = append(n.receivedVoteIDs, n.id)
+			} else {
+				n.insertMessageIntoQueue(requestMessage)
+			}
+			fmt.Printf("------------------  Node %d REQUEST-VOTE: %v\n", n.id, n.vectorClock)
+			for _, node := range nodes {
+				if node.id != n.id {
+					node.messageChan <- requestMessage
+				}
+			}
 		}
 	}
-	n.votedFor = requestMessage
-	n.hasVoted = true
-	n.receivedVoteIDs = append(n.receivedVoteIDs, n.id)
 }
 
 // function to enter CS
 func (n *Node) enterCS() {
 	n.isInCS = true
 
-	fmt.Println("Node", n.id, "ENTERING critical section...")
-	time.Sleep(time.Duration(rand.Intn(10)) * time.Second)
+	fmt.Println("<<<<<<<<<<<<<<<<<<< Node", n.id, "ENTERING critical section...")
+	time.Sleep(time.Duration(rand.Intn(5)) * time.Second)
 
 	// exit critical section
-	n.isInCS = false
-	n.wantToEnterCS = false
-	n.hasVoted = false
-	fmt.Println("Node", n.id, "EXITING critical section...")
+	fmt.Println(">>>>>>>>>>>>>>>>>>> Node", n.id, "EXITING critical section...")
+
 	// send release messages to all nodes
-	for _, node := range nodes {
-		node.messageChan <- Message{
+	// fmt.Printf("Node %d releasing votes: %v\n", n.id, n.receivedVoteIDs)
+	for _, nodeid := range n.receivedVoteIDs {
+		nodes[nodeid].messageChan <- Message{
 			senderID:          n.id,
-			senderVectorClock: n.vectorClock,
+			senderVectorClock: n.vectorClock[:],
 			messageType:       "RELEASE-VOTE",
 		}
 	}
-
+	n.receivedVoteIDs = make([]int, 0)
+	n.isInCS = false
+	n.wantToEnterCS = false
 }
 
 // function to receive a request
@@ -136,24 +147,30 @@ func (n *Node) enterCS() {
 
 func (n *Node) receiveRequest(msg Message) {
 	n.updateVectorClock(msg)
-	vcSnapshot := n.vectorClock
+	// n.vectorClock[n.id]--
+	vcSnapshot := n.vectorClock[:]
 
 	if !n.hasVoted {
-		n.votedFor = msg
-		n.hasVoted = true
+		// n.votedFor = msg
+		// n.hasVoted = true
 		msg.senderVectorClock = vcSnapshot
 		n.giveVote(msg)
 
 	} else { // I have already voted, so I need to either rescind my vote or add the request to my local queue
 		// if incoming message has a smaller vector clock than my vote, I rescind my vote and vote for requester
 		if vectorClockLessThan(&msg, &n.votedFor) {
+			// fmt.Printf("INCOMING: %v, CURRENT: %v\n", msg.senderVectorClock, n.votedFor.senderVectorClock)
 			n.votedFor.senderVectorClock = vcSnapshot
 			n.sendRescindVote(n.votedFor)
+
 			// add the rescindee back to my local queue
-			n.insertMessageIntoQueue(n.votedFor)
+			// n.insertMessageIntoQueue(n.votedFor) //// BUG: should only insert if rescind successful.
+			// } else {
+			// 	// add this new request to the correct position of my local queue
+			// 	n.insertMessageIntoQueue(msg)
 		}
-		// add this new request to the correct position of my local queue
 		n.insertMessageIntoQueue(msg)
+		// fmt.Printf("Node %d's updated QUEUE: %v\n", n.id, n.localQueue)
 	}
 }
 
@@ -162,8 +179,9 @@ func (n *Node) receiveRequest(msg Message) {
 
 func (n *Node) giveVote(msg Message) {
 	n.updateVectorClock(msg)
-	vcSnapshot := n.vectorClock
+	vcSnapshot := append([]int(nil), n.vectorClock[:]...)
 	n.votedFor = msg
+	n.votedFor.senderVectorClock = append(make([]int, 0), msg.senderVectorClock...)
 	n.hasVoted = true
 	giveVoteMessage := Message{
 		senderID:          n.id,
@@ -171,6 +189,7 @@ func (n *Node) giveVote(msg Message) {
 		messageType:       "GIVE-VOTE",
 	}
 	nodes[msg.senderID].messageChan <- giveVoteMessage
+	// fmt.Printf("Node %d GIVE-VOTE to: %v\n", n.id, n.votedFor.senderID)
 }
 
 // function to receive vote
@@ -178,8 +197,9 @@ func (n *Node) giveVote(msg Message) {
 
 func (n *Node) receiveVote(msg Message) {
 	n.updateVectorClock(msg)
-	vcSnapshot := n.vectorClock
+	vcSnapshot := append([]int(nil), n.vectorClock[:]...)
 	n.receivedVoteIDs = append(n.receivedVoteIDs, msg.senderID)
+	// fmt.Printf("Node %d's RECEIVED-VOTES: %v\n", n.id, n.receivedVoteIDs)
 	// i want to check if I want to enter CS and I am not already in CS
 	if n.wantToEnterCS && !n.isInCS {
 		// Check if I have received a majority of votes
@@ -190,9 +210,10 @@ func (n *Node) receiveVote(msg Message) {
 			// enter critical section and then exit
 			n.enterCS()
 		}
-	} else {
+	} else if !n.wantToEnterCS {
 		msg.senderVectorClock = vcSnapshot
 		n.sendReleaseVote(msg)
+		// fmt.Printf("Node %d doesn't need Node %d's vote anymore.\n", n.id, msg.senderID)
 	}
 }
 
@@ -201,23 +222,28 @@ func (n *Node) receiveVote(msg Message) {
 
 func (n *Node) sendReleaseVote(msg Message) {
 	n.updateVectorClock(msg)
-	vcSnapshot := n.vectorClock
+	vcSnapshot := append([]int(nil), n.vectorClock[:]...)
 	// remove sender's vote from my received votes
-	for i, vote := range n.receivedVoteIDs {
-		if vote == msg.senderID {
-			if len(n.receivedVoteIDs) > 1 {
-				n.receivedVoteIDs = append(n.receivedVoteIDs[:i], n.receivedVoteIDs[i+1:]...)
-			} else {
-				n.receivedVoteIDs = make([]int, 0)
+	var updatedSlice []int
+	for _, vote := range n.receivedVoteIDs {
+		if vote != msg.senderID {
+			// if len(n.receivedVoteIDs) > 1 {
+			// 	n.receivedVoteIDs = append(n.receivedVoteIDs[:i], n.receivedVoteIDs[i+1:]...)
+			// } else {
+			// 	n.receivedVoteIDs = make([]int, 0)
+			// }
+			updatedSlice = append(updatedSlice, vote)
+		} else {
+			releaseVoteMessage := Message{
+				senderID:          n.id,
+				senderVectorClock: vcSnapshot,
+				messageType:       "RELEASE-VOTE",
 			}
+			nodes[msg.senderID].messageChan <- releaseVoteMessage
+			// fmt.Printf("Node %d RELEASE-VOTE back to: %v\n", n.id, msg.senderID)
 		}
 	}
-	releaseVoteMessage := Message{
-		senderID:          n.id,
-		senderVectorClock: vcSnapshot,
-		messageType:       "RELEASE-VOTE",
-	}
-	nodes[msg.senderID].messageChan <- releaseVoteMessage
+	n.receivedVoteIDs = updatedSlice
 }
 
 // function where voter receives a released vote from the node it voted for
@@ -225,17 +251,19 @@ func (n *Node) sendReleaseVote(msg Message) {
 
 func (n *Node) receiveReleaseVote(msg Message) {
 	n.updateVectorClock(msg)
-	vcSnapshot := n.vectorClock
+	vcSnapshot := append([]int(nil), n.vectorClock[:]...)
 	n.hasVoted = false
 	n.votedFor = Message{}
-	// then I check my local queue to see if there is a request that I can vote for
+	// fmt.Printf("Node %d CAN VOTE AGAIN!\n", n.id)
 	if len(n.localQueue) > 0 {
 		if !n.hasVoted {
 			n.votedFor = n.localQueue[0]
+			n.votedFor.senderVectorClock = append(make([]int, 0), msg.senderVectorClock...)
 			n.hasVoted = true
 			n.localQueue[0].senderVectorClock = vcSnapshot
 			n.giveVote(n.localQueue[0])
 			n.localQueue = n.localQueue[1:]
+			// fmt.Printf("Node %d's local queue: %v\n", n.id, n.localQueue)
 		}
 	} // else do nothing
 }
@@ -245,7 +273,7 @@ func (n *Node) receiveReleaseVote(msg Message) {
 
 func (n *Node) sendRescindVote(msg Message) {
 	n.updateVectorClock(msg)
-	vcSnapshot := n.vectorClock
+	vcSnapshot := append([]int(nil), n.vectorClock[:]...)
 	rescindVoteMessage := Message{
 		senderID:          n.id,
 		senderVectorClock: vcSnapshot,
@@ -253,7 +281,7 @@ func (n *Node) sendRescindVote(msg Message) {
 	}
 	// send rescind vote to the node I voted for
 	nodes[msg.senderID].messageChan <- rescindVoteMessage
-
+	// fmt.Printf("Node %d wants to RESCIND-VOTE from: %d\n", n.id, msg.senderID)
 }
 
 // function to receive rescind vote
@@ -261,8 +289,9 @@ func (n *Node) sendRescindVote(msg Message) {
 
 func (n *Node) receiveRescindVote(msg Message) {
 	n.updateVectorClock(msg)
-	vcSnapshot := n.vectorClock
+	vcSnapshot := append([]int(nil), n.vectorClock[:]...)
 	// if I'm not in CS, remove rescinder's vote from my received votes
+	// fmt.Printf("Node %d received RESCIND-VOTE from: %v\n", n.id, msg.senderID)
 	if !n.isInCS {
 		// for i, vote := range n.receivedVoteIDs {
 		// 	if vote == msg.senderID {
@@ -275,6 +304,8 @@ func (n *Node) receiveRescindVote(msg Message) {
 		// }
 		msg.senderVectorClock = vcSnapshot
 		n.sendReleaseVote(msg)
+	} else {
+		// fmt.Printf("Node %d is in CS, cannot release vote yet. \n", n.id)
 	}
 }
 
@@ -299,7 +330,7 @@ func (n *Node) listenForMessages() {
 }
 
 var nodes []Node
-var numberOfNodes = 4
+var numberOfNodes = 10
 
 // main function
 // TODO: CHECK THIS FUNCTION

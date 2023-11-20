@@ -178,7 +178,7 @@ func (n *Node) receiveRequest(msg Message) {
 // TODO: CHECK THIS FUNCTION
 
 func (n *Node) giveVote(msg Message) {
-	// n.updateVectorClock(msg)
+	n.updateVectorClock(msg)
 	vcSnapshot := append([]int(nil), n.vectorClock[:]...)
 	n.votedFor = msg
 	n.votedFor.senderVectorClock = append(make([]int, 0), msg.senderVectorClock...)
@@ -196,7 +196,7 @@ func (n *Node) giveVote(msg Message) {
 // TODO: CHECK THIS FUNCTION
 
 func (n *Node) receiveVote(msg Message) {
-	// n.updateVectorClock(msg)
+	n.updateVectorClock(msg)
 	vcSnapshot := append([]int(nil), n.vectorClock[:]...)
 	n.receivedVoteIDs = append(n.receivedVoteIDs, msg.senderID)
 	// fmt.Printf("Node %d's RECEIVED-VOTES: %v\n", n.id, n.receivedVoteIDs)
@@ -221,7 +221,7 @@ func (n *Node) receiveVote(msg Message) {
 // TODO: CHECK THIS FUNCTION
 
 func (n *Node) sendReleaseVote(msg Message) {
-	// n.updateVectorClock(msg)
+	n.updateVectorClock(msg)
 	vcSnapshot := append([]int(nil), n.vectorClock[:]...)
 	// remove sender's vote from my received votes
 	var updatedSlice []int
@@ -250,7 +250,7 @@ func (n *Node) sendReleaseVote(msg Message) {
 // TODO: CHECK THIS FUNCTION
 
 func (n *Node) receiveReleaseVote(msg Message) {
-	// n.updateVectorClock(msg)
+	n.updateVectorClock(msg)
 	vcSnapshot := append([]int(nil), n.vectorClock[:]...)
 	n.hasVoted = false
 	n.votedFor = Message{}
@@ -272,7 +272,7 @@ func (n *Node) receiveReleaseVote(msg Message) {
 // TODO: CHECK THIS FUNCTION
 
 func (n *Node) sendRescindVote(msg Message) {
-	// n.updateVectorClock(msg)
+	n.updateVectorClock(msg)
 	vcSnapshot := append([]int(nil), n.vectorClock[:]...)
 	rescindVoteMessage := Message{
 		senderID:          n.id,
@@ -288,7 +288,7 @@ func (n *Node) sendRescindVote(msg Message) {
 // TODO: CHECK THIS FUNCTION
 
 func (n *Node) receiveRescindVote(msg Message) {
-	// n.updateVectorClock(msg)
+	n.updateVectorClock(msg)
 	vcSnapshot := append([]int(nil), n.vectorClock[:]...)
 	// if I'm not in CS, remove rescinder's vote from my received votes
 	// fmt.Printf("Node %d received RESCIND-VOTE from: %v\n", n.id, msg.senderID)

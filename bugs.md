@@ -1,6 +1,6 @@
-- [ ] line 162: should only add rescindee to queue is rescind was successful (ie. rescindee was snot in CS)
+- [ ] line 162: should only add rescindee to queue if rescind was successful (ie. rescindee was snot in CS)
     - update on on ^ : check if still necessary or naaah...
 - [ ] something wrong with queueing
     - [ ] need to remove node that enters CS from everyone's queue
         - update on ^ : check if fixed
-- [ ] add increment clock for every operation: rn is just send & receive request
+- [x] add increment clock for every operation: rn is just send & receive request
